@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Заявка на комнату в общежитии</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: Arial, sans-serif;
+      background: #f4f6f8;
+      margin: 0;
+      padding: 40px 16px;
+      display: flex;
+      justify-content: center;
+    }
+    .card {
+      background: #fff;
+      width: 100%;
+      max-width: 440px;
+      padding: 28px;
+      border-radius: 12px;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+    }
+    h1 { font-size: 22px; margin: 0 0 20px; }
+    label { display: block; font-size: 14px; margin-bottom: 14px; color: #333; }
+    input {
+      width: 100%;
+      margin-top: 6px;
+      padding: 10px;
+      font-size: 16px;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+    }
+    button {
+      width: 100%;
+      padding: 12px;
+      font-size: 16px;
+      color: #fff;
+      background: #ff7a00;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    button:disabled { background: #bbb; cursor: wait; }
+    #result { margin-top: 20px; }
+    .msg { padding: 14px; border-radius: 8px; font-size: 15px; line-height: 1.5; }
+    .ok { background: #e6f6ea; color: #17692f; }
+    .fail { background: #fdecec; color: #a12121; }
+    .fail ul { margin: 8px 0 0; padding-left: 20px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Заявка на комнату в общежитии</h1>
+    <form id="form">
+      <label>ID студента
+        <input type="number" id="studentId" min="1" required>
+      </label>
+      <label>Номер корпуса
+        <input type="number" id="buildingNumber" min="1" required>
+      </label>
+      <label>Номер комнаты
+        <input type="number" id="roomNumber" min="1" required>
+      </label>
+      <button type="submit" id="btn">Проверить</button>
+    </form>
+    <div id="result"></div>
+  </div>
+
+  <script>
+    const API = "https://inai-col1.fishrungames.com";
+
+    // В API поле "resident" == true означает иногороднего студента.
+    // Если по заданию наоборот — поменяйте на false.
+    const NON_LOCAL_VALUE = true;
+
+    async function getJson(path) {
+      const response = await fetch(API + path);
+      if (!response.ok) {
+        throw new Error(response.status === 404 ? "NOT_FOUND" : "HTTP_" + response.status);
+      }
+      return response.json();
+    }
+
+    async function load(path) {
+      try {
+        return { data: await getJson(path) };
+      } catch (e) {
+        return { error: e.message };
+      }
+    }
+
+    function showResult(ok, reasons) {
+      const result = document.getElementById("result");
+      if (ok) {
+        result.innerHTML = '<div class="msg ok">✅ Всё окей: заселение возможно.</div>';
+      } else {
+        result.innerHTML =
+          '<div class="msg fail">❌ Отказ:<ul>' +
+          reasons.map(r => "<li>" + r + "</li>").join("") +
+          "</ul></div>";
+      }
+    }
+
+    document.getElementById("form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+
+      const studentId = document.getElementById("studentId").value;
+      const buildingNumber = document.getElementById("buildingNumber").value;
+      const roomNumber = document.getElementById("roomNumber").value;
+      const btn = document.getElementById("btn");
+
+      btn.disabled = true;
+      document.getElementById("result").innerHTML = "Проверяем...";
+
+      // 3 GET запроса
+      const [student, building, room] = await Promise.all([
+        load("/students/" + studentId),
+        load("/buildings/" + buildingNumber),
+        load("/rooms/" + roomNumber)
+      ]);
+
+      btn.disabled = false;
+
+      const reasons = [];
+
+      // 1. Студент иногородний?
+      if (student.error === "NOT_FOUND") {
+        reasons.push("Студент с ID " + studentId + " не найден.");
+      } else if (student.error) {
+        reasons.push("Не удалось получить данные студента.");
+      } else if (student.data.resident !== NON_LOCAL_VALUE) {
+        reasons.push("Студент " + student.data.name + " не является иногородним.");
+      }
+
+      // 2. Корпус предназначен для студентов?
+      if (building.error === "NOT_FOUND") {
+        reasons.push("Корпус №" + buildingNumber + " не найден.");
+      } else if (building.error) {
+        reasons.push("Не удалось получить данные корпуса.");
+      } else if (!building.data.forStudents) {
+        reasons.push("Корпус №" + buildingNumber + " не предназначен для студентов.");
+      }
+
+      // 3. Комната свободна?
+      if (room.error === "NOT_FOUND") {
+        reasons.push("Комната №" + roomNumber + " не найдена.");
+      } else if (room.error) {
+        reasons.push("Не удалось получить данные комнаты.");
+      } else if (!room.data.available) {
+        reasons.push("Комната №" + roomNumber + " занята.");
+      }
+
+      showResult(reasons.length === 0, reasons);
+    });
+  </script>
+</body>
+</html>
